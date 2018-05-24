@@ -1,12 +1,18 @@
 const momentTZ = require('moment-timezone');
-const util = require('util');
 const Fuse = require("fuse-js-latest");
 require('moment-duration-format');
 const mysql = require('mysql');
+const {promisify, inspect} = require('util');      // eslint-disable-line no-unused-vars
+const moment = require('moment');       // eslint-disable-line no-unused-vars
+const { Op } = require('sequelize');    // eslint-disable-line no-unused-vars
+const fs = require('fs');    // eslint-disable-line no-unused-vars
+const readdir = promisify(require("fs").readdir);       // eslint-disable-line no-unused-vars
+const request = require('request-promise-native');
 
 module.exports = (client) => {
     // The scheduler for events
     client.schedule = require("node-schedule");
+    
     /*
         PERMISSION LEVEL FUNCTION
         This is a very basic permission system for commands which uses "levels"
@@ -69,7 +75,6 @@ module.exports = (client) => {
 
         // Check the names for an exact match
         for (let ix = 0; ix < charList.length; ix++) {
-            // console.log('checking: ' + charList[ix].name.toLowerCase() + ' VS ' + searchName);
             if (charList[ix].name.toLowerCase() === searchName) {
                 return [charList[ix]];
             }
@@ -118,10 +123,10 @@ module.exports = (client) => {
                 } else if (client.shard && client.shard.count > 0) {
                     // If it's on a different shard, then send it there 
                     client.shard.broadcastEval(`
-                        const thisChan = ${util.inspect(chan)};
+                        const thisChan = ${inspect(chan)};
                         const msg = "${mess}";
                         if (this.channels.has(thisChan)) {
-                            this.sendMsg(thisChan, msg, ${util.inspect(args)});
+                            this.sendMsg(thisChan, msg, ${inspect(args)});
                         }
                     `);
                 }
@@ -191,27 +196,188 @@ module.exports = (client) => {
     };
 
     /*
-     * RELOAD COMMAND
-     * Reloads the given command
+     * Loads the given command
      */
-    client.reload = (command) => {
-        return new Promise((resolve, reject) => {
+    client.loadCommand = (commandName) => {
+        try {
+            const cmd = new (require(`../commands/${commandName}`))(client);
+            if (cmd.help.category === "SWGoH" && !client.swgohAPI) {
+                return 'Unable to load command ${commandName}: no swgohAPI';
+            }
+            client.commands.set(cmd.help.name, cmd);
+            cmd.conf.aliases.forEach(alias => {
+                client.aliases.set(alias, cmd.help.name);
+            });
+            return false;
+        } catch (e) {
+            return `Unable to load command ${commandName}: ${e}`;
+        }
+    };
+
+    /*
+     * Unloads the given command
+     */
+    client.unloadCommand = (command) => {
+        if (typeof command === 'string') {
+            const commandName = command;
+            if (client.commands.has(commandName)) {
+                command = client.commands.get(commandName);
+            } else if (client.aliases.has(commandName)) {
+                command = client.commands.get(client.aliases.get(commandName));
+            }
+        }
+
+        client.commands.delete(command);
+        client.aliases.forEach((cmd, alias) => {
+            if (cmd === command) client.aliases.delete(alias);
+        });
+        delete require.cache[require.resolve(`../commands/${command.help.name}.js`)];
+        return false;
+    };
+
+    /*
+     * Combines the last two, and reloads a command
+     */
+    client.reloadCommand = async (commandName) => {
+        let command;
+        if (client.commands.has(commandName)) {
+            command = client.commands.get(commandName);
+        } else if (client.aliases.has(commandName)) {
+            command = client.commands.get(client.aliases.get(commandName));
+        }
+        if (!command) return new Error(`The command \`${commandName}\` doesn"t seem to exist, nor is it an alias. Try again!`);
+
+        let response = client.unloadCommand(command);
+        if (response) {
+            return new Error(`Error Unloading: ${response}`);
+        } else {
+            response = client.loadCommand(command.help.name);
+            if (response) {
+                return new Error(`Error Loading: ${response}`);
+            }
+        }
+        return command.help.name;
+    };
+
+    // Reloads all commads (even if they were not loaded before)
+    // Will not remove a command it it's been loaded, 
+    // but will load a new command it it's been added
+    client.reloadAllCommands = async (msgID) => {
+        client.commands.keyArray().forEach(c => {
+            client.unloadCommand(c);
+        });
+        const cmdFiles = await readdir('./commands/');
+        const coms = [], errArr = [];
+        cmdFiles.forEach(async (f) => {
             try {
-                delete require.cache[require.resolve(`../commands/${command}.js`)];
-                const cmd = new (require(`../commands/${command}.js`))(client);
-                client.commands.delete(command);
-                client.aliases.forEach((cmd, alias) => {
-                    if (cmd === command) client.aliases.delete(alias);
-                });
-                client.commands.set(command, cmd);
-                cmd.conf.aliases.forEach(alias => {
-                    client.aliases.set(alias, cmd.help.name);
-                });
-                resolve();
+                const cmd = f.split(".")[0];
+                if (f.split(".").slice(-1)[0] !== "js") {
+                    errArr.push(f);
+                } else {
+                    const res = client.loadCommand(cmd);
+                    if (!res) {
+                        coms.push(cmd);
+                    } else {
+                        errArr.push(f);
+                    }
+                }
             } catch (e) {
-                reject(e);
+                console.log('Error: ' + e);
+                errArr.push(f);
             }
         });
+        const channel = client.channels.get(msgID);
+        if (channel) {
+            channel.send(`Reloaded ${coms.length} commands, failed to reload ${errArr.length} commands.${errArr.length > 0 ? '\n```' + errArr.join('\n') + '```' : ''}`);
+        }
+    };
+
+    // Reload the events files (message, guildCreate, etc)
+    client.reloadAllEvents = async (msgID) => {
+        const ev = [], errEv = [];
+        const evtFiles = await readdir("./events/");
+        evtFiles.forEach(file => {
+            try {
+                const eventName = file.split(".")[0];
+                const event = require(`../events/${file}`);
+                client.removeAllListeners(eventName);
+                client.on(eventName, event.bind(null, client));
+                delete require.cache[require.resolve(`../events/${file}`)];
+                ev.push(eventName);
+            } catch (e) {
+                errEv.push(file);
+            }
+        });
+        const channel = client.channels.get(msgID);
+        if (channel) {
+            channel.send(`Reloaded ${ev.length} events, failed to reload ${errEv.length} events.${errEv.length > 0 ? '\n```' + errEv.join('\n') + '```' : ''}`);
+        }
+    };
+
+    // Reload the functions (this) file
+    client.reloadFunctions = async (msgID) => {
+        let err = false;
+        try {
+            delete require.cache[require.resolve("../modules/functions.js")];
+            require("../modules/functions.js")(client);
+        } catch (e) {
+            err = e;
+        }
+        const channel = client.channels.get(msgID);
+        if (channel) {
+            if (err) {
+                channel.send(`Something broke: ${err}`);
+            } else {
+                channel.send(`Reloaded functions`);
+            }
+        }
+    };
+
+    // Reload the data files (ships, teams, characters)
+    client.reloadDataFiles = async (msgID) => {
+        let err = false;
+        try {
+            client.characters = await JSON.parse(fs.readFileSync("data/characters.json"));
+            client.ships = await JSON.parse(fs.readFileSync("data/ships.json"));
+            client.teams = await JSON.parse(fs.readFileSync("data/teams.json"));
+        } catch (e) {
+            err = e;
+        }
+        const channel = client.channels.get(msgID);
+        if (channel) {
+            if (err) {
+                channel.send(`Something broke: ${err}`);
+            } else {
+                channel.send(`Reloaded data files.`);
+            }
+        }
+    };
+
+    // Reload all the language files
+    client.reloadLanguages = async (msgID) => {
+        let err = false;
+        try {
+            Object.keys(client.languages).forEach(lang => {
+                delete client.languages[lang];
+            });
+            const langFiles = await readdir(`${process.cwd()}/languages/`);
+            langFiles.forEach(file => {
+                const langName = file.split(".")[0];
+                const lang = require(`${process.cwd()}/languages/${file}`);
+                client.languages[langName] = new lang(client);
+                delete require.cache[require.resolve(`${process.cwd()}/languages/${file}`)];
+            });
+        } catch (e) {
+            err = e;
+        }
+        const channel = client.channels.get(msgID);
+        if (channel) {
+            if (err) {
+                channel.send(`Something broke: ${err}`);
+            } else {
+                channel.send(`Reloaded language files.`);
+            }
+        }
     };
 
     /*
@@ -244,7 +410,7 @@ module.exports = (client) => {
         if (text && text.constructor.name == "Promise")
             text = await text;
         if (typeof evaled !== "string")
-            text = require("util").inspect(text, {
+            text = inspect(text, {
                 depth: 0
             });
 
@@ -265,7 +431,7 @@ module.exports = (client) => {
     };
 
     // `await wait(1000);` to "pause" for 1 second.
-    global.wait = require("util").promisify(setTimeout);
+    global.wait = promisify(setTimeout);
 
     // These 2 simply handle unhandled things. Like Magic. /shrug
     process.on("uncaughtException", (err) => {
@@ -275,7 +441,7 @@ module.exports = (client) => {
         // If it's that error, don't bother showing it again
         try {
             if (!errorMsg.startsWith('Error: RSV2 and RSV3 must be clear') && client.config.logs.logToChannel) {
-                client.channels.get(client.config.log(`\`\`\`util.inspect(errorMsg)\`\`\``,{split: true}));
+                client.channels.get(client.config.log(`\`\`\`inspect(errorMsg)\`\`\``,{split: true}));
             }
         } catch (e) {
             // Don't bother doing anything
@@ -290,7 +456,7 @@ module.exports = (client) => {
         console.error(`[${client.myTime()}] Uncaught Promise Error: `, errorMsg);
         try {
             if (client.config.logs.logToChannel) {
-                client.channels.get(client.config.logs.channel).send(`\`\`\`${util.inspect(errorMsg)}\`\`\``,{split: true});
+                client.channels.get(client.config.logs.channel).send(`\`\`\`${inspect(errorMsg)}\`\`\``,{split: true});
             }
         } catch (e) {
             // Don't bother doing anything
@@ -389,27 +555,36 @@ module.exports = (client) => {
 
     // Get the ally code of someone that's registered
     client.getAllyCode = async (message, user = 'me') => {
+        user = user.trim();
         let uID, uAC;
-        if (user === 'me') {
+        if (!user || user === 'me') {
             uID = message.author.id;
             try {
                 uAC = await client.allyCodes.findOne({where: {id: uID}});
-                return uAC.dataValues.allyCode;
+                return [uAC.dataValues.allyCode];
             } catch (e) {
-                return false;
+                return [];
             }
         } else if (client.isUserID(user)) {
             uID = user.replace(/[^\d]*/g, '');
             try {
                 uAC = await client.allyCodes.findOne({where: {id: uID}});
-                return uAC.dataValues.allyCode;
+                return [uAC.dataValues.allyCode];
             } catch (e) {
-                return false;
+                return [];
             }
         }  else if (client.isAllyCode(user)) {
-            return user.replace(/[^\d]*/g, '');
+            return [user.replace(/[^\d]*/g, '')];
         }  else {
-            return false;
+            user = user.toLowerCase();
+            const acArr = [];
+            const results = await client.sqlQuery("CALL getAllyFromName( ? );", [user]);
+            if (results && results[0] && results[0].length) {
+                results[0].forEach(r => {
+                    acArr.push(r.allyCode);
+                });
+            }
+            return acArr;
         }
     };
 
@@ -476,8 +651,8 @@ module.exports = (client) => {
             client.eventAnnounce(event);
         });
     
-        if (event.countdown === 'yes') {
-            const timesToCountdown = [ 2880, 1440, 720, 360, 180, 120, 60, 30, 10 ];
+        if (event.countdown === 'true' || event.countdown === 'yes' || event.countdown === true) {
+            const timesToCountdown = [ 2880, 1440, 720, 360, 180, 120, 60, 30, 10, 5 ];
             const nowTime = momentTZ().unix();
             timesToCountdown.forEach(time => {
                 const cdTime = time * 60;
@@ -499,15 +674,15 @@ module.exports = (client) => {
         await client.guildEvents.destroy({where: {eventID: eventID}})
             .then(() => {
                 const eventToDel = client.schedule.scheduledJobs[eventID];
-                if (!eventToDel) console.log('Trying to delete: ' + event);
+                if (!eventToDel) console.log('Broke trying to delete: ' + event);
                 eventToDel.cancel();
             })
             .catch(error => { 
                 client.log('ERROR',`Broke deleting an event ${error}`); 
             });
 
-        if (event.countdown === 'yes') {
-            const timesToCountdown = [ 2880, 1440, 720, 360, 180, 120, 60, 30, 10 ];
+        if (event.countdown === 'true' || event.countdown === 'yes') {
+            const timesToCountdown = [ 2880, 1440, 720, 360, 180, 120, 60, 30, 10, 5 ];
             const nowTime = momentTZ().unix();
             timesToCountdown.forEach(time => {
                 const cdTime = time * 60;
@@ -523,9 +698,9 @@ module.exports = (client) => {
     
     // To stick into node-schedule for each countdown event
     client.countdownAnnounce = async (event) => {
-        const eventNameID = event.eventID.split('-');
-        const eventName = eventNameID[1];
-        const guildID = eventNameID[0];
+        let eventName = event.eventID.split('-');
+        const guildID = eventName.splice(0, 1)[0];
+        eventName = eventName.join('-');
     
         const guildSettings = await client.guildSettings.findOne({where: {guildID: guildID}, attributes: Object.keys(client.config.defaultSettings)});
         const guildConf = guildSettings.dataValues;
@@ -545,9 +720,9 @@ module.exports = (client) => {
     // To stick into node-schedule for each full event
     client.eventAnnounce = async (event) => {
         // Parse out the eventName and guildName from the ID
-        const eventNameID = event.eventID.split('-');
-        const eventName = eventNameID[1];
-        const guildID = eventNameID[0];
+        let eventName = event.eventID.split('-');
+        const guildID = eventName.splice(0, 1)[0];
+        eventName = eventName.join('-');
     
         const guildSettings = await client.guildSettings.findOne({where: {guildID: guildID}, attributes: Object.keys(client.config.defaultSettings)});
         const guildConf = guildSettings.dataValues;
@@ -555,6 +730,12 @@ module.exports = (client) => {
         let repTime = false, repDay = false;
         let newEvent = {};
         const repDays = event.repeatDays;
+
+        if (event.countdown === 'yes') {
+            event.countdown = 'true';
+        } else if (event.countdown === 'no') {
+            event.countdown = 'false';
+        }
 
         // Announce the event
         var announceMessage = `**${eventName}**\n\n${event.eventMessage}`;
@@ -591,7 +772,7 @@ module.exports = (client) => {
                 },
                 "repeatDays": repDays
             };
-        // Else if it's set to repeat 
+            // Else if it's set to repeat 
         } else if (event['repeat'] && (event.repeat['repeatDay'] !== 0 || event.repeat['repeatHour'] !== 0 || event.repeat['repeatMin'] !== 0)) { // At least one of em is more than 0
             repTime = true;
             newEvent = {
@@ -608,20 +789,102 @@ module.exports = (client) => {
                 "repeatDays": []
             };
         }  
-        await client.guildEvents.destroy({where: {eventID: event.eventID}})
-            .then(async () => {
-                // If it's supposed to repeat, go ahead and put it back in    
-                if (repTime || repDay) {
-                    await client.guildEvents.create(newEvent)
-                        .then(() => {
-                            client.scheduleEvent(newEvent);
-                        })
-                        .catch(error => { 
-                            client.log('ERROR',`Broke trying to replace old event ${error}`); 
-                        });
+
+        if (repTime || repDay) {
+            await client.guildEvents.update(newEvent, {where: {eventID: event.eventID}})
+                .then(async () => {
+                    client.scheduleEvent(newEvent);
+                })
+                .catch(error => { client.log('ERROR', "Broke trying to replace event: " + error); });
+        } else {
+            // Just destroy it
+            await client.guildEvents.destroy({where: {eventID: event.eventID}})
+                .then(async () => {})
+                .catch(error => { client.log('ERROR',`Broke trying to delete old event ${error}`); });
+        }
+    };
+
+    
+    // Reload the SWGoH data for all patrons
+    client.reloadPatrons = async () => {
+        client.patrons = await client.getPatrons();
+        let patronIDs = (client.config.vipList && client.config.vipList.length) ? client.config.vipList : [];
+        if (!patronIDs.indexOf(client.config.ownerid)) {
+            patronIDs.push(client.config.ownerid);
+        }
+        client.patrons.forEach(patron => {
+            if (patron.discordID) {
+                patronIDs.push(patron.discordID.toString());
+            }
+        });
+        patronIDs = [...new Set(patronIDs)];
+        console.log('Reloading Patrons (' + patronIDs.length + ')');
+        if (patronIDs.length) {
+            for (let ix=0; ix < patronIDs.length; ix++) {
+                const allyCodes = await client.getAllyCode(null, patronIDs[ix].toString());
+                if (allyCodes.length) {
+                    await client.swgohAPI.updatePlayer(allyCodes[0]);
                 }
-            })
-            .catch(error => { client.log('ERROR',`Broke trying to delete old event ${error}`); });
+            }
+        }
+    };
+
+    // Get all patrons and their info
+    client.getPatrons = async () => {
+        const patreon = client.config.patreon;
+        return new Promise(async (resolve, reject) => {
+            if (!patreon) {
+                reject('No Patreon settings');
+            }
+            try {
+                let response = await request({
+                    headers: {
+                        Authorization: 'Bearer ' + patreon.creatorAccessToken
+                    },
+                    uri: 'https://www.patreon.com/api/oauth2/api/current_user/campaigns',
+                    json: true
+                });
+
+                if (response && response.data && response.data.length) {
+                    response = await request({
+                        headers: {
+                            Authorization: 'Bearer ' + patreon.creatorAccessToken
+                        },
+                        uri: 'https://www.patreon.com/api/oauth2/api/campaigns/' + response.data[0].id + '/pledges',
+                        json: true
+                    });
+
+                    const data = response.data;
+                    const included = response.included;
+
+                    const pledges = data.filter(data => data.type === 'pledge');
+                    const users = included.filter(inc => inc.type === 'user');
+
+                    let patrons = [];
+                    pledges.forEach(pledge => {
+                        const user = users.filter(user => user.id === pledge.relationships.patron.data.id)[0];
+                        patrons.push({
+                            id: pledge.relationships.patron.data.id,
+                            full_name: user.attributes.full_name,
+                            vanity: user.attributes.vanity,
+                            email: user.attributes.email,
+                            discordID: user.attributes.social_connections.discord ? user.attributes.social_connections.discord.user_id : null,
+                            amount_cents: pledge.attributes.amount_cents,
+                            created_at: pledge.attributes.created_at,
+                            declined_since: pledge.attributes.declined_since,
+                            patron_pays_fees: pledge.attributes.patron_pays_fees,
+                            pledge_cap_cents: pledge.attributes.pledge_cap_cents,
+                            image_url: user.attributes.image_url
+                        });
+                    });
+
+                    patrons = patrons.filter(patron => !patron.declined_since);
+
+                    resolve(patrons);
+                }
+            } catch (e) {
+                reject(e);
+            }
+        });
     };
 };
-

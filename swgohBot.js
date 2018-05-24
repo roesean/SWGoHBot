@@ -16,6 +16,7 @@ client.config = require('./config.js');
 client.characters = JSON.parse(fs.readFileSync("data/characters.json"));
 client.ships = JSON.parse(fs.readFileSync("data/ships.json"));
 client.teams = JSON.parse(fs.readFileSync("data/teams.json"));
+client.patrons = [];
 const RANCOR_MOD_CACHE = "./data/crouching-rancor-mods.json";
 const GG_CHAR_CACHE = "./data/swgoh-gg-chars.json";
 const GG_SHIPS_CACHE = "./data/swgoh-gg-ships.json";
@@ -25,10 +26,7 @@ require("./modules/functions.js")(client);
 
 // Languages
 client.languages = {};
-const en_US = require('./languages/en-US.js');
-client.languages.en_US = new en_US(client);
-const de_DE = require('./languages/de_DE.js');
-client.languages.de_DE = new de_DE(client);
+client.reloadLanguages();
 
 client.commands = new Collection();
 client.aliases = new Collection();
@@ -81,6 +79,7 @@ client.allyCodes = client.sequelize.define('allyCodes', {
 });
 
 const init = async () => {
+
     // If we have the magic, use it
     if (client.config.swgohLoc && client.config.swgohLoc !== "") {
         client.swgohAPI = require(`./${client.config.swgohLoc}/swgoh.js`);
@@ -93,10 +92,7 @@ const init = async () => {
             const props = new(require(`./commands/${f}`))(client);
             if (f.split(".").slice(-1)[0] !== "js") return;
             if (props.help.category === "SWGoH" && !client.swgohAPI) return;
-            client.commands.set(props.help.name, props);
-            props.conf.aliases.forEach(alias => {
-                client.aliases.set(alias, props.help.name);
-            });
+            client.loadCommand(props.help.name);
         } catch (e) {
             client.log('Init', `Unable to load command ${f}: ${e}`);
         }
@@ -104,7 +100,6 @@ const init = async () => {
 
     // Then we load events, which will include our message and ready event.
     const evtFiles = await readdir("./events/");
-    // client.log("Init", `Loading a total of ${evtFiles.length} events.`);
     evtFiles.forEach(file => {
         const eventName = file.split(".")[0];
         const event = require(`./events/${file}`);
@@ -133,6 +128,10 @@ if (!client.shard || client.shard.id === 0) {
     // Check every 12 hours to see if any mods have been changed
     setInterval(updateRemoteData, 12 * 60 * 60 * 1000);
     //                               hr   min  sec  mSec
+    
+    // Set the patron's goh data to be reloaded
+    setTimeout(client.reloadPatrons,    1 * 60 * 1000);   // Load em a min after start
+    setInterval(client.reloadPatrons,  60 * 60 * 1000);   // Then every hour after
 } else {
     // To reload the characters on any shard other than the main one
     // a bit after it would have grabbed new ones

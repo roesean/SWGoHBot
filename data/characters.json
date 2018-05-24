@@ -304,6 +304,7 @@
                 "Mk 6 Chiewab Hypo Syringe",
                 "Mk 7 BioTech Implant",
                 "Mk 5 Arakyd Droid Caller"
+
             ],
             "Gear 9": [
                 "Mk 3 Merr-Sonn Thermal Detonator",
@@ -1049,7 +1050,7 @@
             "Power": 22909,
             "Strength": 815,
             "Agility": 1167,
-            "Intelligence": 903,
+	    "Intelligence": 903,
             "Speed": 104,
             "Physical Damage": 2546,
             "Physical Critical Rating": 706,
@@ -32699,7 +32700,22 @@
             "Scoundrel",
             "Tank"
         ],
-        "mods": {},
+        "mods": {
+            "General": {
+                "sets": [
+                    "Speed x4",
+                    "Health x2",
+                    ""
+                ],
+                "square": "Offense",
+                "arrow": "Speed",
+                "diamond": "Defense",
+                "triangle": "Offense/ Protection",
+                "circle": "Health",
+                "cross": "Offense/ Protection",
+                "source": "GoC Supremacy"
+            }
+        },
         "legacyMods": {},
         "gear": {
             "Gear 1": [
