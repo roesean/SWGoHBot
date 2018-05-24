@@ -393,7 +393,9 @@ module.exports = class extends Language {
                     }
                 ]
             },
-
+            // GuildZeta Command
+            COMMAND_GUILDZETA_NO_RESULTS: (character) => `I did not find any results for ${character}`,
+            COMMAND_GUILDZETA_CHAR_LIST: (chars) => `Your search came up with too many results, please be more specific. \nHere's a list of the close matches.\n\`\`\`${chars}\`\`\``,
             // Heists Command
             COMMAND_HEISTS_HEADER: "SWGoH Heists Schedule",
             COMMAND_HEISTS_CREDIT: (date) => `**Credits** : ${date}\n`,
