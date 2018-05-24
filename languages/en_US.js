@@ -84,7 +84,8 @@ module.exports = class extends Language {
             BASE_SWGOH_NO_USER: `Sorry, but I don't have that user listed anywhere.`,
             BASE_SWGOH_MISSING_CHAR: 'You need to enter a character to check for',
             BASE_SWGOH_NO_CHAR_FOUND: (character) => `I did not find any results for ${character}`,
-            BASE_SWGPH_CHAR_LIST: (chars) => `Your search came up with too many results, please be more specific. \nHere's a list of the close matches.\n\`\`\`${chars}\`\`\``,
+            BASE_SWGOH_CHAR_LIST: (chars) => `Your search came up with too many results, please be more specific. \nHere's a list of the close matches.\n\`\`\`${chars}\`\`\``,
+            BASE_SWGOH_NO_ACCT: `Something went wrong, please make sure your account is synced correctly.`,
 
             // Generic (Not tied to a command)
             COMMAND_EXTENDED_HELP: (command) => `**Extended help for ${command.help.name}** \n**Usage**: ${command.help.usage} \n${command.help.extended}`,
@@ -258,6 +259,36 @@ module.exports = class extends Language {
                 ]
             }),
 
+            // Command Report Command
+            COMMAND_COMMANDREPORT_HELP: ({
+                description: "Shows a list of all the commands that have been run in the last 10 days.",
+                actions: [
+                    {
+                        action: "",
+                        actionDesc: '',
+                        usage: ';commandreport',
+                        args: {}
+                    }
+                ]
+            }),
+
+            // Current Events Command
+            COMMAND_CURRENTEVENTS_HEADER: "SWGoH Events Schedule",
+            COMMAND_CURRENTEVENTS_DESC: (num) => `Next ${num} events.\nNote: *Dates are subject to change.*`,
+            COMMAND_CURRENTEVENTS_HELP: {
+                description: "Shows any upcoming events.",
+                actions: [
+                    {
+                        action: "",
+                        actionDesc: '',
+                        usage: ';currentevents [num]',
+                        args: {
+                            "num": "The max number of events you want to show"
+                        }
+                    }
+                ]
+            },
+
             // Event Command (Create)
             COMMAND_EVENT_INVALID_ACTION: (actions) => `Valid actions are \`${actions}\`.`,
             COMMAND_EVENT_INVALID_PERMS: `Sorry, but either you're not an admin, or your server leader has not set up the configs.\nYou cannot add or remove an event unless you have the configured admin role.`,
@@ -310,7 +341,7 @@ module.exports = class extends Language {
                             "--repeat <repeatTime>": "Lets you set a duration with the format of 00d00h00m. It will repeat after that time has passed.",
                             "--repeatDay <schedule>": "Lets you set it to repeat on set days with the format of 0,0,0,0,0.",
                             "--channel <channelName>": "Lets you set a specific channel for the event to announce on.",
-                            "--countdown": "Adds a countdown to when your event will trigger - yes is the only valid parameter."
+                            "--countdown": "Adds a countdown to when your event will trigger."
                         }
                     },
                     {
@@ -355,6 +386,7 @@ module.exports = class extends Language {
             },
 
             // Guilds Command
+            COMMAND_GUILDS_MORE_INFO: 'For more info on a specific guild:',
             COMMAND_GUILDS_HELP: {
                 description: "Shows the top guilds and everyone that's registered in yours.",
                 actions: [
@@ -460,6 +492,7 @@ module.exports = class extends Language {
             COMMAND_MODS_CODE_STRING1: (square, arrow, diamond) => `* Square:   ${square}  \n* Arrow:    ${arrow} \n* Diamond:  ${diamond}\n`,
             COMMAND_MODS_CODE_STRING2: (triangle, circle, cross) => `* Triangle: ${triangle}\n* Circle:   ${circle}\n* Cross:    ${cross}`,
             COMMAND_MODS_CODE_OUTPUT: (charName, modSetString, modPrimaryString) => ` * ${charName} * \n### Sets ### \n${modSetString}\n### Primaries ###\n${modPrimaryString}`,
+            COMMAND_NO_MODSETS: "No mod sets for this character",
             COMMAND_MODS_HELP: {
                 description: "Shows some suggested mods for the specified character.",
                 actions: [
@@ -628,6 +661,8 @@ module.exports = class extends Language {
             COMMAND_REGISTER_PLEASE_WAIT: 'Please wait while I sync your data.',
             COMMAND_REGISTER_FAILURE: 'Registration failed, please make sure your ally code is correct.',
             COMMAND_REGISTER_SUCCESS: (user) => `Registration for \`${user}\` successful!`,
+            COMMAND_REGISTER_UPDATE_FAILURE: 'Something went wrong, make sure your registered ally code is correct',
+            COMMAND_REGISTER_UPDATE_SUCCESS: (user) => `Profile updated for \`${user}\`.`,
             COMMAND_REGISTER_HELP: {
                 description: "Register your ally code to your Discord ID, and sync your SWGoH profile.",
                 actions: [
@@ -674,6 +709,21 @@ module.exports = class extends Language {
                         usage: ';reload <command>',
                         args: {
                             "command": "The command you're wanting to reload."
+                        }
+                    }
+                ]
+            },
+
+            // Reload Data Command
+            COMMAND_RELOADDATA_HELP: {
+                description: "Reloads the selected file(s).",
+                actions: [
+                    {
+                        action: "",
+                        actionDesc: '',
+                        usage: ';reloaddata <option>',
+                        args: {
+                            "option": "What you're wanting to reload ( commands | data | events | function )."
                         }
                     }
                 ]
@@ -865,6 +915,19 @@ module.exports = class extends Language {
                 ]
             },
 
+            // Test command (in .gitignore)
+            COMMAND_TEST_HELP: {
+                description: "A command to test things out.",
+                actions: [
+                    {
+                        action: "",
+                        actionDesc: '',
+                        usage: ';test',
+                        args: {}
+                    }
+                ]
+            },
+
             // Time Command
             COMMAND_TIME_CURRENT: (time, zone) => `Current time is: ${time} in ${zone} time`,
             COMMAND_TIME_INVALID_ZONE: (time, zone) => `Invalid timezone, here's your guild's time ${time} in ${zone} time`,
@@ -900,6 +963,19 @@ module.exports = class extends Language {
                             "info": "Update the info for the character (Image link, abilities etc.)",
                             "mods": "Update the mods from crouchingrancor.com"
                         }
+                    }
+                ]
+            },
+
+            // UpdateClient Command
+            COMMAND_UPDATECLIENT_HELP: {
+                description: "Update the client for the SWGoHAPI.",
+                actions: [
+                    {
+                        action: "",
+                        actionDesc: '',
+                        usage: ';updateclient',
+                        args: {}
                     }
                 ]
             },
