@@ -14,7 +14,7 @@ class CharMods extends Command {
         });
     }
 
-    async run(client, message, [userID, ...searchChar], level) { // eslint-disable-line no-unused-vars
+    async run(client, message, [userID, ...searchChar]) { // eslint-disable-line no-unused-vars
         const stats = message.language.get('COMMAND_CHARMODS_STAT_NAMES');
         const types = message.language.get('COMMAND_CHARMODS_MOD_TYPES');
         const STATMOD_SLOT_01 = client.emojis.find("name", "modSquare");
@@ -61,7 +61,7 @@ class CharMods extends Command {
             charS.forEach(c => {
                 charL.push(c.name);
             });
-            return message.channel.send(message.language.get('BASE_SWGPH_CHAR_LIST', charL.join('\n')));
+            return message.channel.send(message.language.get('BASE_SWGOH_CHAR_LIST', charL.join('\n')));
         } else {
             character = chars[0];
         }
