@@ -203,6 +203,8 @@ module.exports = (client) => {
             const cmd = new (require(`../commands/${commandName}`))(client);
             if (cmd.help.category === "SWGoH" && !client.swgohAPI) {
                 return 'Unable to load command ${commandName}: no swgohAPI';
+            } else if (!cmd.conf.enabled) {
+                return false;
             }
             client.commands.set(cmd.help.name, cmd);
             cmd.conf.aliases.forEach(alias => {
@@ -554,8 +556,10 @@ module.exports = (client) => {
     };
 
     // Get the ally code of someone that's registered
-    client.getAllyCode = async (message, user = 'me') => {
-        user = user.trim();
+    client.getAllyCode = async (message, user) => {
+        if (user) {
+            user = user.toString().trim();
+        }
         let uID, uAC;
         if (!user || user === 'me') {
             uID = message.author.id;
